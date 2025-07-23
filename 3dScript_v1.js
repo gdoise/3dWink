@@ -3,6 +3,12 @@ const outputCanvas = document.getElementById('outputCanvas');
 const ctx = outputCanvas.getContext('2d');
 const startButton = document.getElementById('startButton');
 const statusElement = document.getElementById('status');
+
+// Référence à la nouvelle zone de texte pour les logs
+const statusLogElement = document.getElementById('statusLog');
+// La barre de paragraphe reste pour le statut actuel si vous le souhaitez, sinon vous pouvez la retirer
+const statusElement = document.getElementById('status');
+
 let model;
 let intervalId;
 
@@ -27,19 +33,31 @@ function imageLoaded() {
     imagesToLoad--;
     if (imagesToLoad === 0) {
         imagesLoaded = true;
-        statusElement.textContent = 'Statut : Images 3D chargées. Prêt.';
+        //statusElement.textContent = 'Statut : Images 3D chargées. Prêt.';
+	updateStatusLog('Images 3D chargées. Prêt.');
     }
 }
 
 imageLeft.onload = imageLoaded;
 imageRight.onload = imageLoaded;
-imageLeft.onerror = () => { statusElement.textContent = 'Erreur: Impossible de charger l\'image gauche.'; };
-imageRight.onerror = () => { statusElement.textContent = 'Erreur: Impossible de charger l\'image droite.'; };
+imageLeft.onerror = () => { updateStatusLog('Erreur: Impossible de charger l\'image gauche.'); };
+imageRight.onerror = () => { updateStatusLog('Erreur: Impossible de charger l\'image droite.'); };
+
+// Nouvelle fonction pour mettre à jour le log de statut
+function updateStatusLog(message) {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString(); // Ex: 10:30:45 AM
+    statusLogElement.value += `[${timeString}] ${message}\n`;
+    // Faites défiler automatiquement vers le bas
+    statusLogElement.scrollTop = statusLogElement.scrollHeight;
+    // Mettre à jour aussi le statut court si vous le gardez
+    statusElement.textContent = `Statut : ${message.split('\n')[0]}`; // Prend la première ligne du message
+}
 
 
 // Fonction pour initialiser et démarrer la webcam
 async function setupWebcam() {
-    statusElement.textContent = 'Statut : Démarrage de la webcam...';
+    updateStatusLog('Démarrage de la webcam...');
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         webcamVideo.srcObject = stream;
@@ -51,14 +69,14 @@ async function setupWebcam() {
         });
     } catch (error) {
         console.error('Erreur d\'accès à la webcam:', error);
-        statusElement.textContent = `Erreur: Accès à la webcam refusé ou impossible. (${error.name})`;
+        updateStatusLog(`Erreur: Accès à la webcam refusé ou impossible. (${error.name} - ${error.message || ''})`);
         alert('Impossible d\'accéder à la webcam. Assurez-vous qu\'elle est connectée et que vous avez accordé la permission.');
     }
 }
 
 // Fonction pour charger le modèle FaceMesh
 async function loadFaceMeshModel() {
-    statusElement.textContent = 'Statut : Chargement du modèle FaceMesh...';
+    updateStatusLog('Chargement du modèle FaceMesh...');
     const detectorConfig = {
         // MODIFIEZ CETTE LIGNE
         runtime: 'tfjs', // Ancien: 'mediapipe'
@@ -67,11 +85,11 @@ async function loadFaceMeshModel() {
     };
     try {
         model = await faceLandmarksDetection.createDetector(faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh, detectorConfig);
-        statusElement.textContent = 'Statut : Modèle FaceMesh chargé.';
+        updateStatusLog('Modèle FaceMesh chargé.');
         console.log('FaceMesh model loaded successfully with TFJS runtime.');
     } catch (error) {
         console.error('Erreur lors du chargement du modèle FaceMesh:', error);
-        statusElement.textContent = `Erreur: Impossible de charger le modèle FaceMesh. (${error.message})`;
+        updateStatusLog(`Erreur: Impossible de charger le modèle FaceMesh. (${error.message})`);
     }
 }
 
@@ -95,94 +113,58 @@ async function detectAndDraw() {
 
     let leftEyeVisible = false;
     let rightEyeVisible = false;
+    let currentStatusMessage = 'Deux yeux visibles (Écran Noir)'; // Statut par défaut si non modifié
 
     // Vérifier si des visages sont détectés
     if (predictions.length > 0) {
         // Pour cet exemple, on prend le premier visage détecté
         const face = predictions[0];
 
-        // Vérifier la visibilité des yeux.
-        // C'est une simplification. En réalité, on analyserait les points des yeux.
-        // Si FaceMesh détecte suffisamment de points dans la région d'un œil,
-        // on considère qu'il est "visible".
-        // La librairie Face Landmarks Detection ne donne pas directement un booléen isOccluded.
-        // Il faut le déduire de la présence et de la confiance des landmarks.
-        // Pour simplifier, nous allons juste vérifier si les points clés des yeux sont "détectés" avec une certaine confiance.
+        // Ces indices sont des exemples basiques. Pour une détection d'occlusion robuste,
+        // vous devriez analyser les groupes de points pour chaque œil et leur score de visibilité/confiance (la coordonnée Z).
+        // Par exemple, si la moyenne des Z des points de l'œil est très faible, il est probablement occlus.
+        const visibilityThreshold = 0.1; // Seuil de confiance pour la visibilité d'un point
+        const minEyePointsForVisibility = 5; // Nombre minimum de points d'un œil pour le considérer visible
 
-        // Une approche plus robuste serait de vérifier la présence des points clés de l'œil et leur score de détection.
-        // FaceMesh donne des points avec des coordonnées (x,y,z) et une `visibility` (confiance de détection).
-        // Si la visibilité est faible ou si les points sont aberrants, l'œil est probablement masqué.
+        // Exemples d'indices de points clés pour l'œil gauche et droit de FaceMesh
+        // Ces listes ne sont pas exhaustives et peuvent nécessiter un ajustement précis
+        // en fonction de la version exacte de FaceMesh et de vos besoins.
+        // Utilisez une visualisation des 468 points pour affiner.
+        const leftEyeRegionIndices = [
+            33, 7, 163, 144, 145, 153, 154, 155, 133, // Contour externe
+            246, 161, 160, 159, 158, 157, 173, // Contour interne
+        ];
+        const rightEyeRegionIndices = [
+            362, 382, 381, 380, 374, 373, 390, 249, // Contour externe
+            466, 388, 387, 386, 385, 384, 398, // Contour interne
+        ];
 
-        // Pour cet exemple, nous allons simplifier :
-        // Si FaceMesh ne détecte pas le visage du tout, alors aucun œil n'est visible.
-        // Si un visage est détecté, nous allons supposer que les yeux sont visibles s'ils sont dans le champ de vision.
-        // Une implémentation réelle devrait analyser les landmarks spécifiques de chaque œil pour l'occlusion.
 
-        // --- Stratégie simplifiée pour la détection des yeux ---
-        // Considérons un œil visible si un nombre suffisant de ses points clés sont détectés avec une bonne confiance.
-        // FaceMesh retourne un tableau de 468 landmarks.
-        // Les indices pour les yeux sont spécifiques, par exemple :
-        // Œil gauche (vu de l'utilisateur) : indices 33, 7, 163, 144, 145, 153, 154, 155, 133...
-        // Œil droit (vu de l'utilisateur) : indices 362, 382, 381, 380, 374, 373, 390, 249...
-        // (Ces indices sont des exemples, consultez la documentation FaceMesh pour les indices exacts et un ensemble complet)
-
-        // Pour une approche rapide, on peut vérifier la présence de landmarks clés des yeux.
-        // Si le modèle détecte un visage, il fournira un tableau `mesh` de landmarks.
-        // On peut vérifier si les landmarks d'une région spécifique (comme l'œil) sont présents et cohérents.
-
-        // Placeholder pour la logique de détection d'occlusion basée sur les landmarks :
-        const getEyeVisibility = (eyeLandmarks) => {
-            let visibleCount = 0;
-            const threshold = 0.8; // Seuil de visibilité (confiance) pour un point
-            const minPointsForVisibility = eyeLandmarks.length * 0.5; // Ex: 50% des points de l'œil doivent être visibles
-
-            for (const index of eyeLandmarks) {
-                if (face.mesh[index] && face.mesh[index][2] > threshold) { // Z-coordinate is depth, or use face.mesh[index].visibility if available
-                    visibleCount++;
+        const checkEyeVisibility = (faceMesh, indices) => {
+            let detectedPointsCount = 0;
+            for (const idx of indices) {
+                // Le FaceMesh retourne un tableau de 3 éléments [x, y, z]. Z peut représenter la profondeur ou la confiance/visibilité
+                if (faceMesh[idx] && faceMesh[idx][2] > visibilityThreshold) {
+                    detectedPointsCount++;
                 }
             }
-            return visibleCount >= minPointsForVisibility;
+            return detectedPointsCount >= minEyePointsForVisibility;
         };
 
-        // Note: Les indices exacts des landmarks pour FaceMesh peuvent être trouvés dans la documentation ou en les visualisant.
-        // Pour cet exemple, je vais utiliser un proxy simple: si un visage est détecté, les deux yeux sont "initialement" visibles.
-        // Une implémentation réelle devrait raffiner cela.
-        leftEyeVisible = true; // Assume visible si un visage est détecté
-        rightEyeVisible = true; // Assume visible si un visage est détecté
-
-        // *** IMPORTANT ***
-        // Ici, vous devrez implémenter une logique plus sophistiquée pour détecter l'occlusion.
-        // Par exemple, si la "visibilité" (face.mesh[index][2] ou autre métrique) des points clés de l'œil tombe sous un certain seuil,
-        // ou si un groupe de points clés de l'œil n'est pas détecté du tout.
-        // Vous pouvez aussi analyser la profondeur (Z-coordinate) des points de la main si vous voulez réintroduire la détection de main,
-        // mais comme discuté, la seule détection de l'occlusion est plus simple.
-
-        // Une approche plus robuste pour l'occlusion serait d'utiliser un modèle spécifique ou d'analyser les relations géométriques
-        // entre les points détectés. Si les points de l'œil sont incohérents ou absents, l'œil est occlus.
-
-        // Exemple simplifié d'occlusion (à améliorer) :
-        // Si le nombre de points détectés pour l'œil gauche est très faible, on suppose qu'il est masqué.
-        // C'est très basique et pourrait nécessiter un seuil de confiance plus fin.
-        if (predictions[0].scaledMesh) { // scaledMesh contient les 468 points si détectés
-            // Vérifiez la "confiance" ou la présence des points de l'œil.
-            // Ce sont des indices simplifiés. Vous devriez utiliser des groupes d'indices précis.
-            const sampleLeftEyePoint = predictions[0].scaledMesh[133]; // Exemple d'un point de l'œil gauche
-            const sampleRightEyePoint = predictions[0].scaledMesh[362]; // Exemple d'un point de l'œil droit
-
-            // Si le point n'est pas détecté ou sa confiance est très basse, considérez l'œil masqué.
-            // La "visibilité" ou "confiance" d'un point est souvent la 3ème coordonnée (z) ou une propriété spécifique.
-            const visibilityThreshold = 0.1; // Ajustez ce seuil
-            if (!sampleLeftEyePoint || sampleLeftEyePoint[2] < visibilityThreshold) { // [2] est la coordonnée Z (profondeur) ou confiance
-                leftEyeVisible = false;
-            }
-            if (!sampleRightEyePoint || sampleRightEyePoint[2] < visibilityThreshold) {
-                rightEyeVisible = false;
-            }
+        if (face.scaledMesh) { // Vérifie si les points détaillés sont disponibles
+            leftEyeVisible = checkEyeVisibility(face.scaledMesh, leftEyeRegionIndices);
+            rightEyeVisible = checkEyeVisibility(face.scaledMesh, rightEyeRegionIndices);
+        } else {
+             // Fallback si scaledMesh n'est pas disponible (cas rare ou erreur)
+             // Dans ce cas, on assume que si un visage est détecté, les yeux sont "probablement" visibles.
+             // C'est moins précis.
+             leftEyeVisible = true;
+             rightEyeVisible = true;
         }
+
     } else {
         // Aucun visage détecté
-        leftEyeVisible = false;
-        rightEyeVisible = false;
+        currentStatusMessage = 'Aucun visage détecté.';
     }
 
     // Effacer le canvas
@@ -192,11 +174,11 @@ async function detectAndDraw() {
     if (leftEyeVisible && !rightEyeVisible) {
         // Œil gauche visible seulement -> afficher image gauche
         ctx.drawImage(imageLeft, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        statusElement.textContent = 'Statut : Œil gauche visible (Image Gauche)';
+        currentStatusMessage = 'Œil gauche visible (Image Gauche)';
     } else if (!leftEyeVisible && rightEyeVisible) {
         // Œil droit visible seulement -> afficher image droite
         ctx.drawImage(imageRight, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        statusElement.textContent = 'Statut : Œil droit visible (Image Droite)';
+        currentStatusMessage = 'Œil droit visible (Image Droite)';
     } else {
         // Les deux yeux visibles ou aucun œil visible
         const twoEyesMode = document.querySelector('input[name="twoEyesMode"]:checked').value;
@@ -204,19 +186,26 @@ async function detectAndDraw() {
         if (twoEyesMode === 'black') {
             ctx.fillStyle = 'black';
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            statusElement.textContent = 'Statut : Deux yeux visibles (Écran Noir)';
+            // Le statut est déjà défini par défaut ou par "Aucun visage détecté"
         } else if (twoEyesMode === 'sidebyside') {
             // Afficher les deux images côte à côte
             ctx.drawImage(imageLeft, 0, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT);
             ctx.drawImage(imageRight, CANVAS_WIDTH / 2, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT);
-            statusElement.textContent = 'Statut : Deux yeux visibles (Côté à Côte)';
+            currentStatusMessage = 'Deux yeux visibles (Côté à Côte)';
         } else if (twoEyesMode === 'mono') {
             // Afficher une seule image (par exemple, la gauche)
             ctx.drawImage(imageLeft, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            statusElement.textContent = 'Statut : Deux yeux visibles (Image Unique)';
+            currentStatusMessage = 'Deux yeux visibles (Image Unique)';
         }
         // Pas de mode de "fondue", car cela nécessiterait un blending d'images plus complexe et n'aurait pas de sens pour la 3D sans lunettes.
     }
+
+    // Mettre à jour le log seulement si le statut a changé
+    // Pour éviter de spammer le log avec le même message
+    if (statusElement.textContent !== `Statut : ${currentStatusMessage.split('\n')[0]}`) {
+         updateStatusLog(currentStatusMessage);
+    }
+
 
     // Demander la prochaine frame d'animation
     requestAnimationFrame(detectAndDraw);
@@ -224,6 +213,10 @@ async function detectAndDraw() {
 
 // Événement au clic du bouton de démarrage
 startButton.addEventListener('click', async () => {
+    // Nettoyer le log précédent si on redémarre
+    statusLogElement.value = '';
+    updateStatusLog('Démarrage de l\'application...');
+
     if (!model) {
         await loadFaceMeshModel();
     }
@@ -231,14 +224,17 @@ startButton.addEventListener('click', async () => {
     // Démarrer la boucle de détection après que la webcam soit prête
     webcamVideo.addEventListener('loadeddata', () => {
         if (!intervalId) { // Empêche de démarrer plusieurs boucles
+            // On démarre la boucle de détection principale ici
+            updateStatusLog('Webcam démarrée. Détection en cours...');
             detectAndDraw();
-            statusElement.textContent = 'Statut : Webcam démarrée. Détection en cours...';
         }
     });
 });
 
 // Initialisation au chargement de la page
 window.onload = () => {
-    statusElement.textContent = 'Statut : Prêt à charger les modèles et démarrer.';
+    updateStatusLog('Page chargée. Prêt à démarrer.');
+    // Mettre à jour le statut court initial
+    statusElement.textContent = 'Statut : En attente de démarrage...';
     // Pré-charger le modèle peut prendre du temps, donc on le fait au clic sur le bouton pour une meilleure UX.
 };
