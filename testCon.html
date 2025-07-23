@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visionneuse 3D Par Occlusion Oculaire</title>
+    <link rel="stylesheet" href="3dstyle_v1.css">
+</head>
+<body>
+    <h1>Visionneuse 3D Interactive</h1>
+http://gdoise.free.fr/3d/3dFinger_v1.html
+https://gdoise.github.io/3dWink/3dFinger_v1.html
+
+    <div class="controls">
+        <button id="startButton">Démarrer la Webcam</button>
+        <p id="status">Statut : En attente de démarrage...</p>
+        <textarea id="statusLog" rows="10" cols="50" readonly></textarea>
+        <p>
+            <input type="radio" id="modeBlack" name="twoEyesMode" value="black" checked>
+            <label for="modeBlack">Écran noir (deux yeux)</label>
+        </p>
+        <p>
+            <input type="radio" id="modeSideBySide" name="twoEyesMode" value="sidebyside">
+            <label for="modeSideBySide">Côté à côte (deux yeux)</label>
+        </p>
+        <p>
+            <input type="radio" id="modeMono" name="twoEyesMode" value="mono">
+            <label for="modeMono">Image unique (deux yeux)</label>
+        </p>
+    </div>
+
+    <div class="video-container">
+        <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.x/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@1.0.1/dist/face-landmarks-detection.min.js"></script>
+
+    <script src="testCon.js"></script>
+</body>
+</html>
