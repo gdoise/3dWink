@@ -16,5 +16,6 @@ let intervalId;
 const CANVAS_WIDTH = 640;
 const CANVAS_HEIGHT = 480;
 statusElement.textContent = 'Hello';
+alert("hello");
 outputCanvas.width = CANVAS_WIDTH;
 outputCanvas.height = CANVAS_HEIGHT;
