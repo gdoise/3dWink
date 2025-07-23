@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visionneuse 3D Par Occlusion Oculaire</title>
+    <style>
+        /* Début du CSS intégré */
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        h1 {
+            color: #0056b3;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            text-align: center;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            padding: 12px 25px;
+            font-size: 18px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+            margin-bottom: 15px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        p {
+            margin: 8px 0;
+        }
+
+        input[type="radio"] {
+            margin-right: 5px;
+        }
+
+        label {
+            font-size: 1rem;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        #statusLog {
+            width: 90%;
+            max-width: 500px;
+            height: 200px; /* Taille fixe pour le débogage */
+            margin-top: 15px;
+            padding: 10px;
+            font-size: 0.9em;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+            resize: vertical;
+            font-family: monospace;
+            white-space: pre-wrap; /* Préserve les retours à la ligne */
+            overflow-y: scroll; /* Permet le défilement */
+        }
+
+        .video-container {
+            position: relative;
+            width: 640px; /* Taille de votre canvas */
+            height: 480px; /* Taille de votre canvas */
+            border: 2px solid #a0a0a0;
+            background-color: black; /* Fond noir par défaut */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 25px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        #outputCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        /* Fin du CSS intégré */
+    </style>
+</head>
+<body>
+    <h1>👀 Visionneuse 3D Interactive (Mode Débug) 👀</h1>
+
+    <div class="controls">
+        <button id="startButton">Démarrer la Webcam</button>
+        <p id="status">Statut : En attente de démarrage...</p>
+        <textarea id="statusLog" rows="10" cols="50" readonly></textarea>
+        
+        <h3>Mode d'affichage (deux yeux visibles) :</h3>
+        <p>
+            <input type="radio" id="modeBlack" name="twoEyesMode" value="black" checked>
+            <label for="modeBlack">Écran noir</label>
+        </p>
+        <p>
+            <input type="radio" id="modeSideBySide" name="twoEyesMode" value="sidebyside">
+            <label for="modeSideBySide">Côté à côte</label>
+        </p>
+        <p>
+            <input type="radio" id="modeMono" name="twoEyesMode" value="mono">
+            <label for="modeMono">Image unique (gauche)</label>
+        </p>
+    </div>
+
+    <div class="video-container">
+        <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.x/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@1.0.1/dist/face-landmarks-detection.min.js"></script>
+
+    <script>
+        /* Début du JavaScript intégré */
+        const webcamVideo = document.getElementById('webcamVideo');
+        const outputCanvas = document.getElementById('outputCanvas');
+        const ctx = outputCanvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const statusLogElement = document.getElementById('statusLog'); // La zone de texte pour les logs
+        const statusElement = document.getElementById('status'); // Le paragraphe pour le statut actuel (optionnel)
+
+        let model;
+        let animationFrameId; // Utilisation de requestAnimationFrame
+        let lastStatusMessage = ''; // Pour éviter de répéter le même message dans le log
+
+        // Dimensions du canvas (peuvent être ajustées)
+        const CANVAS_WIDTH = 640;
+        const CANVAS_HEIGHT = 480;
+
+        outputCanvas.width = CANVAS_WIDTH;
+        outputCanvas.height = CANVAS_HEIGHT;
+
+        // Chargement des images 3D (remplacez par vos propres chemins !)
+        const imageLeft = new Image();
+        imageLeft.src = 'https://via.placeholder.com/640x480/FF0000/FFFFFF?text=Image+Gauche'; // <-- REMPLACEZ CECI
+        const imageRight = new Image();
+        imageRight.src = 'https://via.placeholder.com/640x480/0000FF/FFFFFF?text=Image+Droite'; // <-- REMPLACEZ CECI
+
+        // Assurez-vous que les images sont chargées avant de les utiliser
+        let imagesLoaded = false;
+        let imagesToLoad = 2;
+
+        function imageLoaded() {
+            imagesToLoad--;
+            if (imagesToLoad === 0) {
+                imagesLoaded = true;
+                updateStatusLog('Images 3D chargées. Prêt.');
+            }
+        }
+
+        imageLeft.onload = imageLoaded;
+        imageRight.onload = imageLoaded;
+        imageLeft.onerror = () => { updateStatusLog('Erreur: Impossible de charger l\'image gauche.'); };
+        imageRight.onerror = () => { updateStatusLog('Erreur: Impossible de charger l\'image droite.'); };
+
+        // Fonction pour mettre à jour le log de statut
+        function updateStatusLog(message) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('fr-FR'); // Format français pour l'heure
+            const fullMessage = `[${timeString}] ${message}`;
+
+            if (message !== lastStatusMessage) { // N'ajoute au log que si le message est différent
+                statusLogElement.value += fullMessage + '\n';
+                statusLogElement.scrollTop = statusLogElement.scrollHeight; // Fait défiler
+                lastStatusMessage = message;
+            }
+            statusElement.textContent = `Statut : ${message.split('\n')[0]}`; // Mise à jour du statut court
+        }
+
+        // Fonction pour initialiser et démarrer la webcam
+        async function setupWebcam() {
+            updateStatusLog('Démarrage de la webcam...');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamVideo.srcObject = stream;
+                return new Promise((resolve) => {
+                    webcamVideo.onloadedmetadata = () => {
+                        webcamVideo.play();
+                        resolve();
+                    };
+                });
+            } catch (error) {
+                console.error('Erreur d\'accès à la webcam:', error);
+                updateStatusLog(`Erreur: Accès à la webcam refusé ou impossible. (${error.name} - ${error.message || 'Cause inconnue'})`);
+                alert('Impossible d\'accéder à la webcam. Assurez-vous qu\'elle est connectée et que vous avez accordé la permission.');
+            }
+        }
+
+        // Fonction pour charger le modèle FaceMesh
+        async function loadFaceMeshModel() {
+            updateStatusLog('Chargement du modèle FaceMesh...');
+            const detectorConfig = {
+                runtime: 'tfjs', // Utilisation du runtime TFJS
+            };
+            try {
+                model = await faceLandmarksDetection.createDetector(faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh, detectorConfig);
+                updateStatusLog('Modèle FaceMesh chargé.');
+                console.log('FaceMesh model loaded successfully with TFJS runtime.');
+            } catch (error) {
+                console.error('Erreur lors du chargement du modèle FaceMesh:', error);
+                updateStatusLog(`Erreur: Impossible de charger le modèle FaceMesh. (${error.message || 'Vérifiez la console.'})`);
+            }
+        }
+
+        // Fonction principale de détection et d'affichage
+        async function detectAndDraw() {
+            if (!model || !webcamVideo.srcObject || !imagesLoaded) {
+                animationFrameId = requestAnimationFrame(detectAndDraw);
+                return;
+            }
+
+            const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: false });
+
+            let leftEyeVisible = false;
+            let rightEyeVisible = false;
+            let currentStatusMessage = 'Deux yeux visibles (Écran Noir)'; // Statut par défaut si non modifié
+
+            if (predictions.length > 0) {
+                const face = predictions[0];
+
+                // Paramètres de détection d'occlusion (ajustez ces valeurs)
+                const visibilityThreshold = 0.05; // Seuil bas pour la "visibilité" (Z-coord ou confiance)
+                const minEyePointsForVisibility = 10; // Nombre minimal de points de l'œil pour le considérer visible
+
+                // Indices des points clés pour les contours des yeux FaceMesh
+                // Ces listes sont plus complètes que les exemples précédents, mais peuvent toujours nécessiter un affinage.
+                // Basées sur la documentation officielle ou des visualisations courantes.
+                const LEFT_EYE_CONTOUR_INDICES = [
+                    33, 7, 163, 144, 145, 153, 154, 155, 133, // Contour supérieur et coin interne
+                    246, 161, 160, 159, 158, 157, 173, // Contour inférieur et coin externe
+                    // Points de la pupille et des paupières intérieures/extérieures
+                    130, 243, 190, 226, 227, 228, 229, 230, 231, 232, 233, 244, 189, 221, 222, 223, 224, 225, 113, 224, 225
+                ];
+                const RIGHT_EYE_CONTOUR_INDICES = [
+                    362, 382, 381, 380, 374, 373, 390, 249, // Contour supérieur et coin interne
+                    466, 388, 387, 386, 385, 384, 398, // Contour inférieur et coin externe
+                    // Points de la pupille et des paupières intérieures/extérieures
+                    359, 463, 414, 446, 447, 448, 449, 450, 451, 452, 453, 464, 413, 441, 442, 443, 444, 445, 342, 444, 445
+                ];
+
+
+                const checkEyeOcclusion = (faceMesh, indices) => {
+                    let detectedPointsInEye = 0;
+                    for (const idx of indices) {
+                        // Vérifie si le point existe et si sa "visibilité" (souvent la 3ème coordonnée Z, ou une propriété 'visibility')
+                        // est au-dessus du seuil. La coordonnée Z indique la profondeur ou la confiance/visibilité du point.
+                        if (faceMesh[idx] && faceMesh[idx][2] > visibilityThreshold) {
+                            detectedPointsInEye++;
+                        }
+                    }
+                    // Si un nombre suffisant de points de l'œil sont détectés avec une bonne confiance, l'œil est considéré visible.
+                    return detectedPointsInEye >= minEyePointsForVisibility;
+                };
+
+                if (face.scaledMesh) {
+                    leftEyeVisible = checkEyeOcclusion(face.scaledMesh, LEFT_EYE_CONTOUR_INDICES);
+                    rightEyeVisible = checkEyeOcclusion(face.scaledMesh, RIGHT_EYE_CONTOUR_INDICES);
+                } else {
+                    // Si scaledMesh n'est pas disponible pour une raison quelconque, on ne peut pas faire de détection fine.
+                    // On peut choisir de considérer les yeux comme non visibles, ou visibles par défaut si un visage est là.
+                    // Pour le débogage, il vaut mieux assumer non visible pour comprendre le problème.
+                    leftEyeVisible = false;
+                    rightEyeVisible = false;
+                    currentStatusMessage = 'Visage détecté, mais données de points clés absentes ou incomplètes.';
+                }
+
+            } else {
+                // Aucun visage détecté
+                currentStatusMessage = 'Aucun visage détecté.';
+            }
+
+            // Effacer le canvas
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Appliquer les règles d'affichage
+            if (leftEyeVisible && !rightEyeVisible) {
+                ctx.drawImage(imageLeft, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                currentStatusMessage = 'Œil gauche visible (Image Gauche)';
+            } else if (!leftEyeVisible && rightEyeVisible) {
+                ctx.drawImage(imageRight, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                currentStatusMessage = 'Œil droit visible (Image Droite)';
+            } else {
+                const twoEyesMode = document.querySelector('input[name="twoEyesMode"]:checked').value;
+
+                if (twoEyesMode === 'black') {
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    // Le statut est déjà défini par défaut ou par "Aucun visage détecté"
+                } else if (twoEyesMode === 'sidebyside') {
+                    ctx.drawImage(imageLeft, 0, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT);
+                    ctx.drawImage(imageRight, CANVAS_WIDTH / 2, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT);
+                    currentStatusMessage = 'Deux yeux visibles (Côté à Côte)';
+                } else if (twoEyesMode === 'mono') {
+                    ctx.drawImage(imageLeft, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    currentStatusMessage = 'Deux yeux visibles (Image Unique)';
+                }
+            }
+
+            updateStatusLog(currentStatusMessage); // Mise à jour du log (avec le contrôle de la répétition)
+
+            // Demander la prochaine frame d'animation
+            animationFrameId = requestAnimationFrame(detectAndDraw);
+        }
+
+        // Événement au clic du bouton de démarrage
+        startButton.addEventListener('click', async () => {
+            statusLogElement.value = ''; // Nettoyer le log précédent
+            lastStatusMessage = ''; // Réinitialiser le dernier message pour forcer la première entrée
+            updateStatusLog('Démarrage de l\'application...');
+
+            if (!model) {
+                await loadFaceMeshModel();
+            }
+            // Vérifier si le modèle a été chargé avec succès avant de continuer
+            if (!model) {
+                updateStatusLog('Impossible de continuer sans le modèle FaceMesh. Corrigez les erreurs.');
+                return;
+            }
+
+            await setupWebcam();
+            // Vérifier si la webcam a démarré avec succès
+            if (!webcamVideo.srcObject) {
+                updateStatusLog('Impossible de continuer sans l\'accès à la webcam. Corrigez les permissions.');
+                return;
+            }
+
+            // Démarrer la boucle de détection après que la webcam soit prête
+            // Assurez-vous de ne pas lancer plusieurs boucles requestAnimationFrame
+            if (!animationFrameId) {
+                updateStatusLog('Webcam démarrée. Détection en cours...');
+                detectAndDraw();
+            }
+        });
+
+        // Initialisation au chargement de la page
+        window.onload = () => {
+            updateStatusLog('Page chargée. Prêt à démarrer.');
+            // Mise à jour du statut court initial
+            statusElement.textContent = 'Statut : En attente de démarrage...';
+        };
+        /* Fin du JavaScript intégré */
+    </script>
+</body>
+</html>
