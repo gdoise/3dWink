@@ -11,7 +11,7 @@ const statusElement = document.getElementById('status');
 
 let model;
 let intervalId;
-
+statusElement.textContent = 'Hello';
 // Dimensions du canvas (peuvent être ajustées)
 const CANVAS_WIDTH = 640;
 const CANVAS_HEIGHT = 480;
