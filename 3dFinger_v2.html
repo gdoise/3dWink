@@ -212,7 +212,10 @@
         async function loadFaceMeshModel() {
             updateStatusLog('Chargement du modèle FaceMesh...');
             const detectorConfig = {
-                runtime: 'tfjs', // Utilisation du runtime TFJS
+                // MODIFIEZ CETTE LIGNE
+                runtime: 'mediapipe', // Ancien: 'mediapipe'  testé: 'tfjs'
+                // solutionPath n'est pas nécessaire avec le runtime 'tfjs'
+                solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh',
             };
             try {
                 model = await faceLandmarksDetection.createDetector(faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh, detectorConfig);
