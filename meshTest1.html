@@ -150,6 +150,13 @@
                 </label>
             </p>
             <p>
+                <label for="faceDetectionConfidence">
+                    <span>Confiance min. détection visage :</span>
+                    <input type="range" id="faceDetectionConfidence" min="0" max="1" step="0.05" value="0.9">
+                    <span id="faceDetectionConfidenceValue">0.9</span>
+                </label>
+            </p>
+            <p>
                 <label for="frameRate">
                     <span>Fréquence d'analyse (ms) :</span>
                     <input type="range" id="frameRate" min="10" max="500" step="10" value="50">
@@ -159,6 +166,10 @@
              <p>
                 <input type="checkbox" id="showLandmarks" checked>
                 <label for="showLandmarks">Afficher les points de détection</label>
+            </p>
+            <p>
+                <input type="checkbox" id="showBoundingBox">
+                <label for="showBoundingBox">Afficher le cadre du visage</label>
             </p>
         </div>
 
@@ -199,9 +210,12 @@
         const visibilityThresholdValueSpan = document.getElementById('visibilityThresholdValue');
         const minEyePointsForVisibilitySlider = document.getElementById('minEyePointsForVisibility');
         const minEyePointsForVisibilityValueSpan = document.getElementById('minEyePointsForVisibilityValue');
+        const faceDetectionConfidenceSlider = document.getElementById('faceDetectionConfidence'); // Nouveau slider
+        const faceDetectionConfidenceValueSpan = document.getElementById('faceDetectionConfidenceValue'); // Nouveau span
         const frameRateSlider = document.getElementById('frameRate');
         const frameRateValueSpan = document.getElementById('frameRateValue');
         const showLandmarksCheckbox = document.getElementById('showLandmarks');
+        const showBoundingBoxCheckbox = document.getElementById('showBoundingBox'); // Nouvelle checkbox
 
 
         let model;
@@ -212,8 +226,10 @@
         // Paramètres configurables
         let visibilityThreshold = parseFloat(visibilityThresholdSlider.value);
         let minEyePointsForVisibility = parseInt(minEyePointsForVisibilitySlider.value);
-        let desiredFrameRate = parseInt(frameRateSlider.value); // en ms, fréquence max de détection
+        let faceDetectionConfidence = parseFloat(faceDetectionConfidenceSlider.value); // Nouvelle variable
+        let desiredFrameRate = parseInt(frameRateSlider.value);
         let showLandmarks = showLandmarksCheckbox.checked;
+        let showBoundingBox = showBoundingBoxCheckbox.checked; // Nouvelle variable
 
 
         // Mise à jour des valeurs affichées des sliders
@@ -225,12 +241,19 @@
             minEyePointsForVisibility = parseInt(minEyePointsForVisibilitySlider.value);
             minEyePointsForVisibilityValueSpan.textContent = minEyePointsForVisibility;
         };
+        faceDetectionConfidenceSlider.oninput = () => { // Nouveau gestionnaire
+            faceDetectionConfidence = parseFloat(faceDetectionConfidenceSlider.value);
+            faceDetectionConfidenceValueSpan.textContent = faceDetectionConfidence;
+        };
         frameRateSlider.oninput = () => {
             desiredFrameRate = parseInt(frameRateSlider.value);
             frameRateValueSpan.textContent = `${desiredFrameRate} ms`;
         };
         showLandmarksCheckbox.onchange = () => {
             showLandmarks = showLandmarksCheckbox.checked;
+        };
+        showBoundingBoxCheckbox.onchange = () => { // Nouveau gestionnaire
+            showBoundingBox = showBoundingBoxCheckbox.checked;
         };
 
 
@@ -310,27 +333,19 @@
         }
 
         // Indices des points clés pour les contours des yeux FaceMesh
-        // Ces listes sont des approximations courantes. Pour la précision, utilisez une visualisation de FaceMesh.
-        // https://raw.githubusercontent.com/tensorflow/tfjs-models/master/face-landmarks-detection/mesh_map.jpg
         const LEFT_EYE_CONTOUR_INDICES = [
-            33, 7, 163, 144, 145, 153, 154, 155, 133, // Contour supérieur et coin interne
-            246, 161, 160, 159, 158, 157, 173, // Contour inférieur et coin externe
+            33, 7, 163, 144, 145, 153, 154, 155, 133,
+            246, 161, 160, 159, 158, 157, 173,
         ];
         const RIGHT_EYE_CONTOUR_INDICES = [
-            362, 382, 381, 380, 374, 373, 390, 249, // Contour supérieur et coin interne
-            466, 388, 387, 386, 385, 384, 398, // Contour inférieur et coin externe
+            362, 382, 381, 380, 374, 373, 390, 249,
+            466, 388, 387, 386, 385, 384, 398,
         ];
-        // Ajout des indices des pupilles pour référence (optionnel si vous ne les utilisez pas directement pour l'occlusion)
-        const LEFT_PUPIL_INDEX = 468; // Ou 469 selon les sources
-        const RIGHT_PUPIL_INDEX = 473; // Ou 474 selon les sources
-
 
         const checkEyeOcclusion = (faceMesh, indices) => {
             let detectedPointsInEye = 0;
             for (const idx of indices) {
-                // Le FaceMesh retourne un tableau de 3 éléments [x, y, z]. Z peut représenter la profondeur ou la confiance/visibilité
-                // Une valeur Z plus élevée (plus proche de 1) indique une plus grande confiance/visibilité.
-                if (faceMesh[idx] && faceMesh[idx][2] > visibilityThreshold) {
+                if (faceMesh[idx] && faceMesh[idx][2] > visibilityThreshold) { // [2] est la coordonnée Z (confiance/visibilité)
                     detectedPointsInEye++;
                 }
             }
@@ -342,39 +357,30 @@
             if (!landmarks) return;
             ctx.fillStyle = color;
             for (const landmark of landmarks) {
-                // landmark est [x, y, z]
-                // Convertir les coordonnées relatives à la vidéo en coordonnées du canvas
                 const x = landmark[0] * (CANVAS_WIDTH / webcamVideo.videoWidth);
                 const y = landmark[1] * (CANVAS_HEIGHT / webcamVideo.videoHeight);
                 ctx.beginPath();
-                ctx.arc(x, y, 2, 0, 2 * Math.PI); // Dessine un petit cercle
+                ctx.arc(x, y, 2, 0, 2 * Math.PI);
                 ctx.fill();
             }
         }
         
-        // Fonction pour dessiner les connexions entre les points (contours)
-        function drawConnections(landmarks, connections, color = 'cyan') {
-            if (!landmarks || !connections) return;
+        // Fonction pour dessiner un rectangle de délimitation
+        function drawBoundingBox(box, color = 'red') {
             ctx.strokeStyle = color;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            for (const connection of connections) {
-                const [startIdx, endIdx] = connection;
-                if (landmarks[startIdx] && landmarks[endIdx]) {
-                    const startX = landmarks[startIdx][0] * (CANVAS_WIDTH / webcamVideo.videoWidth);
-                    const startY = landmarks[startIdx][1] * (CANVAS_HEIGHT / webcamVideo.videoHeight);
-                    const endX = landmarks[endIdx][0] * (CANVAS_WIDTH / webcamVideo.videoWidth);
-                    const endY = landmarks[endIdx][1] * (CANVAS_HEIGHT / webcamVideo.videoHeight);
-                    ctx.moveTo(startX, startY);
-                    ctx.lineTo(endX, endY);
-                }
-            }
-            ctx.stroke();
+            ctx.lineWidth = 2;
+            // Assurez-vous que les coordonnées du bounding box sont correctement mises à l'échelle pour le canvas
+            const startX = box.xMin * (CANVAS_WIDTH / webcamVideo.videoWidth);
+            const startY = box.yMin * (CANVAS_HEIGHT / webcamVideo.videoHeight);
+            const width = box.width * (CANVAS_WIDTH / webcamVideo.videoWidth);
+            const height = box.height * (CANVAS_HEIGHT / webcamVideo.videoHeight);
+            ctx.strokeRect(startX, startY, width, height);
+            ctx.fillStyle = color;
+            ctx.font = '12px Arial';
+            ctx.fillText(`Confiance: ${box.score.toFixed(2)}`, startX + 5, startY + 15);
         }
 
-
         async function detectAndDraw() {
-            // Limiter la fréquence d'analyse pour ne pas surcharger le processeur
             const now = performance.now();
             if (now - lastDetectionTime < desiredFrameRate) {
                 animationFrameId = requestAnimationFrame(detectAndDraw);
@@ -382,52 +388,51 @@
             }
             lastDetectionTime = now;
 
-
             if (!model || !webcamVideo.srcObject || !imagesLoaded) {
                 animationFrameId = requestAnimationFrame(detectAndDraw);
                 return;
             }
 
-            const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: false });
+            // --- Dessine la vidéo de la webcam sur le canvas en premier ---
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Nettoie le canvas
+            ctx.drawImage(webcamVideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: false, minDetectionConfidence: faceDetectionConfidence });
 
             let leftEyeVisible = false;
             let rightEyeVisible = false;
-            let currentStatusMessage = 'Aucun visage détecté.'; // Statut par défaut si non modifié
-
-            // Effacer le canvas
-            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            let currentStatusMessage = 'Aucun visage détecté.';
 
             if (predictions.length > 0) {
                 const face = predictions[0]; // On se concentre sur le premier visage détecté
                 
-                // Dessiner la vidéo de la webcam sur le canvas (en mode débug, c'est utile)
-                // Ou dessiner l'image 3D si on veut voir le résultat superposé aux points
-                ctx.drawImage(webcamVideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
+                // --- Dessine le cadre de délimitation si activé ---
+                if (showBoundingBox && face.box) {
+                    drawBoundingBox(face.box, 'cyan'); // Cadre du visage en cyan
+                }
 
                 if (face.scaledMesh) {
                     leftEyeVisible = checkEyeOcclusion(face.scaledMesh, LEFT_EYE_CONTOUR_INDICES);
                     rightEyeVisible = checkEyeOcclusion(face.scaledMesh, RIGHT_EYE_CONTOUR_INDICES);
                     
-                    // Si l'option "Afficher les points" est activée
+                    // --- Dessine les points si activé ---
                     if (showLandmarks) {
                         // Dessiner tous les landmarks du visage
-                        drawLandmarks(face.scaledMesh, 'rgba(255, 255, 0, 0.7)'); // Jaune semi-transparent
-                        // Dessiner les connexions principales du visage si disponible (pas directement en FaceMesh.js, mais par convention)
-                        // Face Landmarks Detection ne fournit pas directement de 'connections' comme les autres modèles de MediaPipe
-                        // Vous devrez définir manuellement les connexions pour les contours des yeux/lèvres si vous voulez les tracer.
-                        // Pour l'instant, on se contente des points.
-                        
-                        // Mettre en évidence les points des yeux
+                        drawLandmarks(face.scaledMesh, 'rgba(255, 255, 0, 0.5)'); // Jaune semi-transparent
+
+                        // Mettre en évidence les points des yeux avec leurs couleurs spécifiques
                         for(const idx of LEFT_EYE_CONTOUR_INDICES) {
                             if(face.scaledMesh[idx]) {
                                 const pt = face.scaledMesh[idx];
                                 const x = pt[0] * (CANVAS_WIDTH / webcamVideo.videoWidth);
                                 const y = pt[1] * (CANVAS_HEIGHT / webcamVideo.videoHeight);
-                                ctx.fillStyle = 'red'; // Rouge pour l'œil gauche
+                                // Affiche la coordonnée Z à côté du point
+                                ctx.fillStyle = 'red';
                                 ctx.beginPath();
                                 ctx.arc(x, y, 3, 0, 2 * Math.PI);
                                 ctx.fill();
+                                ctx.font = '10px Arial';
+                                ctx.fillText(pt[2].toFixed(2), x + 5, y - 5); // Affiche Z
                             }
                         }
                         for(const idx of RIGHT_EYE_CONTOUR_INDICES) {
@@ -435,35 +440,38 @@
                                 const pt = face.scaledMesh[idx];
                                 const x = pt[0] * (CANVAS_WIDTH / webcamVideo.videoWidth);
                                 const y = pt[1] * (CANVAS_HEIGHT / webcamVideo.videoHeight);
-                                ctx.fillStyle = 'blue'; // Bleu pour l'œil droit
+                                ctx.fillStyle = 'blue';
                                 ctx.beginPath();
                                 ctx.arc(x, y, 3, 0, 2 * Math.PI);
                                 ctx.fill();
+                                ctx.font = '10px Arial';
+                                ctx.fillText(pt[2].toFixed(2), x + 5, y - 5); // Affiche Z
                             }
                         }
                     }
 
-                    currentStatusMessage = `Détection: Gauche: ${leftEyeVisible ? 'Visible' : 'Masqué'} (Pts: ${checkEyeOcclusion(face.scaledMesh, LEFT_EYE_CONTOUR_INDICES) ? face.scaledMesh.filter((p, i) => LEFT_EYE_CONTOUR_INDICES.includes(i) && p[2] > visibilityThreshold).length : 0}/${LEFT_EYE_CONTOUR_INDICES.length}), Droit: ${rightEyeVisible ? 'Visible' : 'Masqué'} (Pts: ${checkEyeOcclusion(face.scaledMesh, RIGHT_EYE_CONTOUR_INDICES) ? face.scaledMesh.filter((p, i) => RIGHT_EYE_CONTOUR_INDICES.includes(i) && p[2] > visibilityThreshold).length : 0}/${RIGHT_EYE_CONTOUR_INDICES.length})`;
+                    // --- Mettre à jour le statut détaillé ---
+                    const leftEyePointsCount = face.scaledMesh.filter((p, i) => LEFT_EYE_CONTOUR_INDICES.includes(i) && p[2] > visibilityThreshold).length;
+                    const rightEyePointsCount = face.scaledMesh.filter((p, i) => RIGHT_EYE_CONTOUR_INDICES.includes(i) && p[2] > visibilityThreshold).length;
+                    
+                    currentStatusMessage = `Visage détecté (Conf: ${face.box.score.toFixed(2)}). `;
+                    currentStatusMessage += `Œil G: ${leftEyeVisible ? 'Visible' : 'Masqué'} (${leftEyePointsCount}/${LEFT_EYE_CONTOUR_INDICES.length}), `;
+                    currentStatusMessage += `Œil D: ${rightEyeVisible ? 'Visible' : 'Masqué'} (${rightEyePointsCount}/${RIGHT_EYE_CONTOUR_INDICES.length})`;
 
                 } else {
-                    currentStatusMessage = 'Visage détecté, mais données de points clés absentes ou incomplètes.';
+                    currentStatusMessage = 'Visage détecté, mais données de points clés absentes ou incomplètes. Ajustez la confiance ou l\'éclairage.';
                 }
 
             } else {
                 currentStatusMessage = 'Aucun visage détecté.';
             }
 
-            // Afficher l'image 3D par-dessus la vidéo de la webcam (ou en remplacement total si showLandmarks est faux)
-            // Cette logique devient plus complexe en mode débogage. Pour l'instant, on garde la vidéo.
-            // Si vous voulez voir l'image 3D sans la vidéo derrière, commentez ctx.drawImage(webcamVideo...);
-            
-            // Appliquer les règles d'affichage pour les images 3D (sans la webcam en fond)
-            // Pour le mode DEBUG, nous dessinons la webcam, puis potentiellement les images 3D
-            // Si vous souhaitez masquer la webcam pour voir UNIQUEMENT le résultat 3D ou les points,
-            // vous devriez commenter la ligne `ctx.drawImage(webcamVideo, ...)`
-            
-            if (!showLandmarks) { // Si on ne montre pas les landmarks, on applique la logique 3D principale
-                ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Efface la webcam si on veut l'image 3D seule
+            // --- Logique d'affichage 3D sur le canvas (si showLandmarks est désactivé) ---
+            if (!showLandmarks) {
+                // Si on ne montre pas les landmarks, on applique la logique 3D principale
+                // Effacer la vidéo de la webcam pour montrer uniquement le rendu 3D
+                ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); 
+
                 if (leftEyeVisible && !rightEyeVisible) {
                     ctx.drawImage(imageLeft, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                     currentStatusMessage += ' -> Image Gauche';
@@ -486,8 +494,9 @@
                     }
                 }
             } else {
-                // En mode landmarks, la webcam reste en fond et on ajoute les messages de statut précis
-                 // Le statut est déjà mis à jour dans la logique de détection des yeux
+                // Si showLandmarks est activé, la vidéo de la webcam est déjà dessinée.
+                // On ajoute juste l'information de l'état des yeux au statut.
+                // Le message est déjà construit plus haut.
             }
 
             updateStatusLog(currentStatusMessage);
@@ -514,12 +523,11 @@
                 return;
             }
             
-            // Important : Pour requestAnimationFrame, annuler la frame précédente avant d'en redemander une nouvelle
             if (animationFrameId) {
                 cancelAnimationFrame(animationFrameId);
             }
             updateStatusLog('Webcam démarrée. Détection en cours...');
-            animationFrameId = requestAnimationFrame(detectAndDraw); // Lancer la boucle principale
+            animationFrameId = requestAnimationFrame(detectAndDraw);
 
         });
 
