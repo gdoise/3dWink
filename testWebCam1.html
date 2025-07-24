@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Webcam sur Canvas</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px;
+        }
+        video {
+            display: none; /* La vidéo est cachée, le canvas l'affichera */
+        }
+        canvas {
+            border: 2px solid blue;
+            background-color: black; /* Pour voir si le canvas est noir ou reçoit un flux */
+            width: 640px;
+            height: 480px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Webcam sur Canvas</h1>
+    <button id="startBtn">Démarrer le Test Webcam</button>
+    <p id="statusTest">Statut : En attente...</p>
+
+    <video id="webcamVideoTest" autoplay playsinline></video>
+    <canvas id="outputCanvasTest"></canvas>
+
+    <script>
+        const video = document.getElementById('webcamVideoTest');
+        const canvas = document.getElementById('outputCanvasTest');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const statusP = document.getElementById('statusTest');
+
+        const CANVAS_WIDTH = 640;
+        const CANVAS_HEIGHT = 480;
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        async function startWebcamTest() {
+            statusP.textContent = "Statut : Demande d'accès à la webcam...";
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                statusP.textContent = "Statut : Webcam activée, affichage en cours...";
+
+                video.onloadedmetadata = () => {
+                    video.play();
+                    requestAnimationFrame(drawVideoToCanvas); // Démarrer le dessin sur le canvas
+                };
+
+            } catch (err) {
+                console.error("Erreur d'accès à la webcam:", err);
+                statusP.textContent = `Erreur : ${err.name} - ${err.message || "Impossible d'accéder à la webcam."}`;
+                alert(`Erreur d'accès à la webcam: ${err.name} - ${err.message || "Vérifiez les permissions du navigateur et la connexion de la webcam."}`);
+            }
+        }
+
+        function drawVideoToCanvas() {
+            if (video.readyState === video.HAVE_ ENOUGH_DATA) { // Assure que la vidéo a assez de données
+                ctx.drawImage(video, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            }
+            requestAnimationFrame(drawVideoToCanvas);
+        }
+
+        startBtn.addEventListener('click', startWebcamTest);
+
+        window.onload = () => {
+            statusP.textContent = "Statut : Prêt à tester la webcam.";
+        };
+    </script>
+</body>
+</html>
