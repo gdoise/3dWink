@@ -381,22 +381,40 @@
         }
 
         async function detectAndDraw() {
+            console.log('detectAndDraw: Appelée.'); // Nouveau log 1
+        
             const now = performance.now();
             if (now - lastDetectionTime < desiredFrameRate) {
                 animationFrameId = requestAnimationFrame(detectAndDraw);
                 return;
             }
             lastDetectionTime = now;
-
+        
             if (!model || !webcamVideo.srcObject || !imagesLoaded) {
+                // Ajoutons un log pour savoir pourquoi elle se termine tôt
+                let reason = '';
+                if (!model) reason += 'Modèle non chargé. ';
+                if (!webcamVideo.srcObject) reason += 'Webcam non prête. ';
+                if (!imagesLoaded) reason += 'Images 3D non chargées. ';
+                console.log(`detectAndDraw: Terminaison anticipée - ${reason}`);
                 animationFrameId = requestAnimationFrame(detectAndDraw);
                 return;
             }
-
+        
             // --- Dessine la vidéo de la webcam sur le canvas en premier ---
-            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Nettoie le canvas
-            ctx.drawImage(webcamVideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            
+            // Nouveau log 2 : Vérifiez si nous arrivons ici
+            console.log('detectAndDraw: Tentative de dessin de la webcam.'); 
+            console.log(`Webcam video dimensions: ${webcamVideo.videoWidth}x${webcamVideo.videoHeight}`); // Nouveau log 3
+        
+            // Assurez-vous que videoWidth et videoHeight sont > 0 avant de dessiner
+            if (webcamVideo.videoWidth > 0 && webcamVideo.videoHeight > 0) {
+                ctx.drawImage(webcamVideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            } else {
+                console.warn('Webcam video dimensions are zero, cannot draw yet.');
+            }
+        
             const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: false, minDetectionConfidence: faceDetectionConfidence });
 
             let leftEyeVisible = false;
@@ -508,33 +526,43 @@
             statusLogElement.value = '';
             lastStatusMessage = '';
             updateStatusLog('Démarrage de l\'application...');
-
+        
             if (!model) {
                 await loadFaceMeshModel();
             }
             if (!model) {
                 updateStatusLog('Impossible de continuer sans le modèle FaceMesh. Corrigez les erreurs.');
+                console.error('Model not loaded, aborting startup.'); // Nouveau log
                 return;
             }
-
+        
             await setupWebcam();
             if (!webcamVideo.srcObject) {
                 updateStatusLog('Impossible de continuer sans l\'accès à la webcam. Corrigez les permissions.');
+                console.error('Webcam not ready, aborting startup.'); // Nouveau log
                 return;
             }
             
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-            }
-            updateStatusLog('Webcam démarrée. Détection en cours...');
-            animationFrameId = requestAnimationFrame(detectAndDraw);
-
+            // Assurez-vous que la vidéo est chargée avant de lancer detectAndDraw
+            // C'est potentiellement le point de blocage !
+            webcamVideo.onloadeddata = () => { // Utilisez 'loadeddata' car 'loadedmetadata' peut être trop tôt
+                console.log('Webcam video loadeddata event fired. Starting detection loop.');
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                updateStatusLog('Webcam démarrée. Détection en cours...');
+                animationFrameId = requestAnimationFrame(detectAndDraw);
+            };
+            // Si loadeddata ne se déclenche jamais, il y a un problème.
+            // Ajouter un timeout pour diagnostiquer si l'event ne se déclenche pas
+            setTimeout(() => {
+                if (!animationFrameId && webcamVideo.srcObject) {
+                    console.warn("Webcam loadeddata event did not fire within expected time. Forcing detectAndDraw start.");
+                    updateStatusLog('Webcam démarrée (force). Détection en cours...');
+                    animationFrameId = requestAnimationFrame(detectAndDraw);
+                }
+            }, 3000); // Attendre 3 secondes
         });
-
-        window.onload = () => {
-            updateStatusLog('Page chargée. Prêt à démarrer.');
-            statusElement.textContent = 'Statut : En attente de démarrage...';
-        };
         /* Fin du JavaScript intégré */
     </script>
 </body>
