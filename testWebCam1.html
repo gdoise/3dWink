@@ -63,7 +63,7 @@
         }
 
         function drawVideoToCanvas() {
-            if (video.readyState === video.HAVE_ ENOUGH_DATA) { // Assure que la vidéo a assez de données
+            if (video.readyState === video.HAVE_ENOUGH_DATA) { // Assure que la vidéo a assez de données
                 ctx.drawImage(video, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
             }
             requestAnimationFrame(drawVideoToCanvas);
