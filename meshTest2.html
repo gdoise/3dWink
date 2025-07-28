@@ -203,9 +203,11 @@
         <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
         <canvas id="outputCanvas"></canvas>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.x/dist/tf.min.js"></script>
+    <! -- Il est très possible que la version 4.x de TFJS ait des changements internes qui ne sont pas entièrement compatibles avec la version 1.0.1 du modèle face-landmarks-detection
+            src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.x/dist/tf.min.js"  Donc on downgrade tensorflow vers: -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@1.0.1/dist/face-landmarks-detection.min.js"></script>
+    
 
     <script>
         /* Début du JavaScript intégré */
