@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test BlazeFace</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 20px; background-color: #f0f0f0; color: #333; }
+        h1 { color: #0056b3; margin-bottom: 20px; }
+        .controls { margin-bottom: 20px; text-align: center; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); width: 90%; max-width: 680px; }
+        button { padding: 12px 25px; font-size: 18px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; transition: background-color 0.3s ease; margin-bottom: 15px; }
+        button:hover { background-color: #0056b3; }
+        #status { margin-top: 10px; font-weight: bold; color: #555; }
+        #statusLog { width: 90%; max-width: 500px; height: 200px; margin-top: 15px; padding: 10px; font-size: 0.9em; border: 1px solid #ddd; background-color: #f9f9f9; resize: vertical; font-family: monospace; white-space: pre-wrap; overflow-y: scroll; text-align: left; }
+        .video-container { position: relative; width: 640px; height: 480px; border: 2px solid #a0a0a0; background-color: black; display: flex; justify-content: center; align-items: center; margin-top: 25px; box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15); }
+        #outputCanvas { width: 100%; height: 100%; display: block; }
+    </style>
+</head>
+<body>
+    <h1>Test de détection de visage (BlazeFace)</h1>
+
+    <div class="controls">
+        <button id="startButton">Démarrer la Webcam et Détecter</button>
+        <p id="status">Statut : En attente de démarrage...</p>
+        <textarea id="statusLog" rows="10" cols="50" readonly></textarea>
+    </div>
+
+    <div class="video-container">
+        <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script> <script>
+        const webcamVideo = document.getElementById('webcamVideo');
+        const outputCanvas = document.getElementById('outputCanvas');
+        const ctx = outputCanvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const statusLogElement = document.getElementById('statusLog');
+        const statusElement = document.getElementById('status');
+
+        let model; // Sera le modèle BlazeFace
+        let animationFrameId;
+        let lastStatusMessage = '';
+        let lastDetectionTime = 0;
+        const desiredFrameRate = 100; // Fréquence de détection pour ce test
+
+        const CANVAS_WIDTH = 640;
+        const CANVAS_HEIGHT = 480;
+
+        outputCanvas.width = CANVAS_WIDTH;
+        outputCanvas.height = CANVAS_HEIGHT;
+
+        function updateStatusLog(message) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            const fullMessage = `[${timeString}] ${message}`;
+            if (message !== lastStatusMessage || message.includes('Visage(s) détecté(s)') || message.includes('Aucun visage détecté')) {
+                statusLogElement.value += fullMessage + '\n';
+                statusLogElement.scrollTop = statusLogElement.scrollHeight;
+                lastStatusMessage = message;
+            }
+            statusElement.textContent = `Statut : ${message.split('\n')[0]}`;
+        }
+
+        async function setupWebcam() {
+            updateStatusLog('Démarrage de la webcam...');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamVideo.srcObject = stream;
+                return new Promise((resolve) => {
+                    webcamVideo.onloadedmetadata = () => {
+                        webcamVideo.play();
+                        resolve();
+                    };
+                });
+            } catch (error) {
+                console.error('Erreur d\'accès à la webcam:', error);
+                updateStatusLog(`Erreur: Accès à la webcam refusé ou impossible. (${error.name} - ${error.message || 'Cause inconnue'})`);
+                alert('Impossible d\'accéder à la webcam. Assurez-vous qu\'elle est connectée et que vous avez accordé la permission.');
+            }
+        }
+
+        async function loadBlazeFaceModel() { // NOUVELLE FONCTION POUR BLAZEFACE
+            updateStatusLog('Chargement du modèle BlazeFace...');
+            try {
+                await tf.setBackend('cpu'); // Forçons le CPU ici aussi pour le test initial
+                await tf.ready();
+                console.log('TFJS backend pour BlazeFace:', tf.getBackend());
+                model = await blazeface.load(); // Charge le modèle BlazeFace
+                updateStatusLog('Modèle BlazeFace chargé avec succès (Backend CPU forcé).');
+            } catch (error) {
+                console.error('Erreur lors du chargement du modèle BlazeFace:', error);
+                updateStatusLog(`Erreur: Impossible de charger le modèle BlazeFace. (${error.message || 'Vérifiez la console.'})`);
+            }
+        }
+
+        function drawFaceBox(ctx, prediction) {
+            const start = prediction.topLeft;
+            const end = prediction.bottomRight;
+            const size = [end[0] - start[0], end[1] - start[1]];
+
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            // Échelle les coordonnées par rapport aux dimensions du canvas
+            const x = start[0] * (CANVAS_WIDTH / webcamVideo.videoWidth);
+            const y = start[1] * (CANVAS_HEIGHT / webcamVideo.videoHeight);
+            const w = size[0] * (CANVAS_WIDTH / webcamVideo.videoWidth);
+            const h = size[1] * (CANVAS_HEIGHT / webcamVideo.videoHeight);
+            ctx.strokeRect(x, y, w, h);
+
+            ctx.fillStyle = 'red';
+            ctx.font = '14px Arial';
+            ctx.fillText(`Conf: ${prediction.probability.toFixed(2)}`, x + 5, y > 20 ? y - 10 : y + 20); // Ajuste position si trop haut
+        }
+
+        async function detectAndDrawBlazeFace() { // NOUVELLE FONCTION DE DÉTECTION
+            const now = performance.now();
+            if (now - lastDetectionTime < desiredFrameRate) {
+                animationFrameId = requestAnimationFrame(detectAndDrawBlazeFace);
+                return;
+            }
+            lastDetectionTime = now;
+
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            if (webcamVideo.videoWidth > 0 && webcamVideo.videoHeight > 0) {
+                ctx.drawImage(webcamVideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            }
+
+            if (model && webcamVideo.srcObject) {
+                try {
+                    const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: false });
+
+                    if (predictions.length > 0) {
+                        predictions.forEach(prediction => {
+                            // Inspectez la prédiction pour voir si les coordonnées sont NaN ou valides
+                            console.log('BlazeFace Prediction:', prediction); 
+                            if (!isNaN(prediction.topLeft[0]) && !isNaN(prediction.topLeft[1])) {
+                                drawFaceBox(ctx, prediction);
+                                updateStatusLog(`Visage(s) détecté(s) : ${predictions.length}. Conf: ${prediction.probability.toFixed(2)}`);
+                            } else {
+                                updateStatusLog(`Visage détecté par BlazeFace, mais coordonnées invalides (NaN).`);
+                                console.warn('BlazeFace a renvoyé des NaN pour les coordonnées:', prediction);
+                            }
+                        });
+                    } else {
+                        updateStatusLog('Aucun visage détecté par BlazeFace.');
+                    }
+                } catch (error) {
+                    console.error("Erreur lors de la détection BlazeFace:", error);
+                    updateStatusLog(`Erreur de détection BlazeFace: ${error.message}`);
+                }
+            }
+            animationFrameId = requestAnimationFrame(detectAndDrawBlazeFace);
+        }
+
+        startButton.addEventListener('click', async () => {
+            statusLogElement.value = '';
+            lastStatusMessage = '';
+            updateStatusLog('Démarrage du test BlazeFace...');
+
+            if (!model) {
+                await loadBlazeFaceModel();
+            }
+            if (!model) {
+                updateStatusLog('Impossible de charger le modèle BlazeFace. Abandon.');
+                return;
+            }
+
+            await setupWebcam();
+            if (!webcamVideo.srcObject) {
+                updateStatusLog('Webcam non prête. Abandon.');
+                return;
+            }
+            
+            webcamVideo.onloadeddata = () => { 
+                console.log('Webcam video loadeddata event fired for BlazeFace test. Starting detection loop.');
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                updateStatusLog('Webcam démarrée pour BlazeFace. Détection en cours...');
+                animationFrameId = requestAnimationFrame(detectAndDrawBlazeFace);
+            };
+            // Fallback
+            setTimeout(() => {
+                if (!animationFrameId && webcamVideo.srcObject) {
+                    console.warn("Webcam loadeddata event did not fire for BlazeFace test. Forcing detectAndDraw start.");
+                    updateStatusLog('Webcam démarrée (force) pour BlazeFace. Détection en cours...');
+                    animationFrameId = requestAnimationFrame(detectAndDrawBlazeFace);
+                }
+            }, 3000); 
+        });
+    </script>
+</body>
+</html>
