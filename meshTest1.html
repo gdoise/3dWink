@@ -416,7 +416,10 @@
             }
         
             const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: false, minDetectionConfidence: faceDetectionConfidence });
-
+            console.log('Nombre de prédictions FaceMesh:', predictions.length); // NOUVEAU LOG
+            if (predictions.length > 0) {
+                console.log('Détails de la première prédiction:', predictions[0]); // NOUVEAU LOG
+            }
             let leftEyeVisible = false;
             let rightEyeVisible = false;
             let currentStatusMessage = 'Aucun visage détecté.';
