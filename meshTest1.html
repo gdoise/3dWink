@@ -126,7 +126,7 @@
     </style>
 </head>
 <body>
-    <h1>👀 Visionneuse 3D Interactive (Mode Détection/Débug) 👀</h1>
+    <h1>👀 Visionneuse 3D Interactive (Mode Détection/ Débug) 👀</h1>
 
     <div class="controls">
         <button id="startButton">Démarrer la Webcam</button>
@@ -415,7 +415,7 @@
                 console.warn('Webcam video dimensions are zero, cannot draw yet.');
             }
         
-            const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: true, minDetectionConfidence: faceDetectionConfidence });
+            const predictions = await model.estimateFaces(webcamVideo, { flipHorizontal: false, minDetectionConfidence: faceDetectionConfidence });
             console.log('Nombre de prédictions FaceMesh:', predictions.length); // NOUVEAU LOG
             if (predictions.length > 0) {
                 console.log('Détails de la première prédiction:', predictions[0]); // NOUVEAU LOG
