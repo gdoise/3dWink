@@ -444,14 +444,13 @@
             let leftEyeVisible = false;
             let rightEyeVisible = false;
             let currentStatusMessage = 'Aucun visage détecté.';
-
+/*
             if (predictions.length > 0) {
                 const face = predictions[0]; 
                 
                 if (showBoundingBox && face.box) {
                     drawBoundingBox(face.box, 'cyan'); 
                 }
-/*
                 if (face.scaledMesh) {
                     leftEyeVisible = checkEyeOcclusion(face.scaledMesh, LEFT_EYE_CONTOUR_INDICES);
                     rightEyeVisible = checkEyeOcclusion(face.scaledMesh, RIGHT_EYE_CONTOUR_INDICES);
