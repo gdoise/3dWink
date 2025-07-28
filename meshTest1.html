@@ -126,7 +126,7 @@
     </style>
 </head>
 <body>
-    <h1>👀 Visionneuse 3D Interactive (Mode Détection / Débug ) 👀</h1>
+    <h1>👀 Visionneuse 3D Interactive (Mode Détection/Débug ) 👀</h1>
 
     <div class="controls">
         <button id="startButton">Démarrer la Webcam</button>
@@ -385,7 +385,7 @@
         }
         
         // Fonction pour dessiner un rectangle de délimitation
-        function drawBoundingBox(box, color = 'red') {
+        /*function drawBoundingBox(box, color = 'red') {
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             // Assurez-vous que les coordonnées du bounding box sont correctement mises à l'échelle pour le canvas
@@ -397,8 +397,25 @@
             ctx.fillStyle = color;
             ctx.font = '12px Arial';
             ctx.fillText(`Confiance: ${box.score.toFixed(2)}`, startX + 5, startY + 15);
-        }
-
+        }*/
+	// MODIFIEZ CELLE-CI :
+	function drawBoundingBox(box, color = 'red') {
+	    // Pas besoin de vérifier NaN ici si notre customBoundingBox est bien faite
+	    // et les calculs sont faits à partir des dimensions de la vidéo.
+	    ctx.strokeStyle = color;
+	    ctx.lineWidth = 2;
+	    // Ces valeurs (box.xMin, box.yMin, etc.) DEVRAIENT ÊTRE DÉJÀ À L'ÉCHELLE DU FLUX VIDÉO BRUT
+	    // donc les ratios (CANVAS_WIDTH / webcamVideo.videoWidth) sont corrects ici.
+	    const startX = box.xMin * (CANVAS_WIDTH / webcamVideo.videoWidth);
+	    const startY = box.yMin * (CANVAS_HEIGHT / webcamVideo.videoHeight);
+	    const width = box.width * (CANVAS_WIDTH / webcamVideo.videoWidth);
+	    const height = box.height * (CANVAS_HEIGHT / webcamVideo.videoHeight);
+	
+	    ctx.strokeRect(startX, startY, width, height);
+	    ctx.fillStyle = color;
+	    ctx.font = '12px Arial';
+	    ctx.fillText(`Confiance: ${box.score.toFixed(2)}`, startX + 5, startY + 15);
+	}
         async function detectAndDraw() {
             console.log('detectAndDraw: Appelée.'); 
         
@@ -438,6 +455,8 @@
             console.log('Nombre de prédictions FaceMesh:', predictions.length); // NOUVEAU LOG
             if (predictions.length > 0) {
                 console.log('Détails de la première prédiction:', predictions[0]); // NOUVEAU LOG
+		const face = predictions[0];
+    		console.log('Premier point de scaledMesh:', face.scaledMesh[0]); // Devrait afficher [x, y, z] numériques
             }
         
             let leftEyeVisible = false;
@@ -450,7 +469,7 @@
                 if (showBoundingBox && face.box) {
                     drawBoundingBox(face.box, 'cyan'); 
                 }
-
+/*
                 if (face.scaledMesh) {
                     leftEyeVisible = checkEyeOcclusion(face.scaledMesh, LEFT_EYE_CONTOUR_INDICES);
                     rightEyeVisible = checkEyeOcclusion(face.scaledMesh, RIGHT_EYE_CONTOUR_INDICES);
@@ -500,7 +519,53 @@
             } else {
                 currentStatusMessage = 'Aucun visage détecté.';
             }
-
+*/
+	    if (predictions.length > 0) {
+		    const face = predictions[0];
+		    const scaledMesh = face.scaledMesh; // Les 468 points détectés
+		
+		    if (scaledMesh && scaledMesh.length > 0) {
+		        // Calculez min/max X et Y à partir des points détectés
+		        let minX = Infinity;
+		        let minY = Infinity;
+		        let maxX = -Infinity;
+		        let maxY = -Infinity;
+		
+		        for (const point of scaledMesh) {
+		            // Les points sont des tableaux [x, y, z]
+		            minX = Math.min(minX, point[0]);
+		            minY = Math.min(minY, point[1]);
+		            maxX = Math.max(maxX, point[0]);
+		            maxY = Math.max(maxY, point[1]);
+		        }
+		
+		        // Créez un objet bounding box "sûr"
+		        const customBoundingBox = {
+		            xMin: minX,
+		            yMin: minY,
+		            width: maxX - minX,
+		            height: maxY - minY,
+		            score: face.box ? face.box.score : 1.0 // Utilisez le score existant ou un par défaut
+		        };
+		
+		        // Utilisez ce customBoundingBox pour le dessin
+		        if (showBoundingBox) {
+		            // Adaptez la fonction drawBoundingBox pour prendre ces valeurs brutes
+		            // ou assurez-vous qu'elle gère bien les conversions d'échelle.
+		            // Par exemple, en passant les dimensions brutes et en laissant la fonction les scaler
+		            drawBoundingBoxFromRaw(customBoundingBox, 'cyan'); // Nouvelle fonction ou modifiez l'existante
+		        }
+		
+		        // ... (le reste de votre logique de visibilité des yeux et affichage des points)
+		        // Assurez-vous que les lignes qui utilisaient face.box.score utilisent maintenant customBoundingBox.score
+		        currentStatusMessage = `Visage détecté (Conf: ${customBoundingBox.score.toFixed(2)}). `;
+		
+		    } else {
+		        currentStatusMessage = 'Visage détecté, mais données de points clés absentes ou incomplètes. Ajustez la confiance ou l\'éclairage.';
+		    }
+	    } else {
+                currentStatusMessage = 'Aucun visage détecté.';
+            }
             if (!showLandmarks) {
                 ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); 
 
