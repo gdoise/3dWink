@@ -126,7 +126,7 @@
     </style>
 </head>
 <body>
-    <h1>👀 Visionneuse 3D Interactive (Mode Détection/Débug ) 👀</h1>
+    <h1>👀 Visionneuse 3D Interactive (Mode Détection/Débug) 👀</h1>
 
     <div class="controls">
         <button id="startButton">Démarrer la Webcam</button>
@@ -385,7 +385,7 @@
         }
         
         // Fonction pour dessiner un rectangle de délimitation
-        /*function drawBoundingBox(box, color = 'red') {
+        function drawBoundingBox(box, color = 'red') {
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             // Assurez-vous que les coordonnées du bounding box sont correctement mises à l'échelle pour le canvas
@@ -397,25 +397,7 @@
             ctx.fillStyle = color;
             ctx.font = '12px Arial';
             ctx.fillText(`Confiance: ${box.score.toFixed(2)}`, startX + 5, startY + 15);
-        }*/
-	// MODIFIEZ CELLE-CI :
-	function drawBoundingBox(box, color = 'red') {
-	    // Pas besoin de vérifier NaN ici si notre customBoundingBox est bien faite
-	    // et les calculs sont faits à partir des dimensions de la vidéo.
-	    ctx.strokeStyle = color;
-	    ctx.lineWidth = 2;
-	    // Ces valeurs (box.xMin, box.yMin, etc.) DEVRAIENT ÊTRE DÉJÀ À L'ÉCHELLE DU FLUX VIDÉO BRUT
-	    // donc les ratios (CANVAS_WIDTH / webcamVideo.videoWidth) sont corrects ici.
-	    const startX = box.xMin * (CANVAS_WIDTH / webcamVideo.videoWidth);
-	    const startY = box.yMin * (CANVAS_HEIGHT / webcamVideo.videoHeight);
-	    const width = box.width * (CANVAS_WIDTH / webcamVideo.videoWidth);
-	    const height = box.height * (CANVAS_HEIGHT / webcamVideo.videoHeight);
-	
-	    ctx.strokeRect(startX, startY, width, height);
-	    ctx.fillStyle = color;
-	    ctx.font = '12px Arial';
-	    ctx.fillText(`Confiance: ${box.score.toFixed(2)}`, startX + 5, startY + 15);
-	}
+        }
         async function detectAndDraw() {
             console.log('detectAndDraw: Appelée.'); 
         
