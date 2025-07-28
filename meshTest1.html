@@ -316,8 +316,8 @@
                 alert('Impossible d\'accéder à la webcam. Assurez-vous qu\'elle est connectée et que vous avez accordé la permission.');
             }
         }
-/*
-        async function loadFaceMeshModel_Old() {
+
+        async function loadFaceMeshModel() {
             updateStatusLog('Chargement du modèle FaceMesh...');
             const detectorConfig = {
                 runtime: 'tfjs',
@@ -331,9 +331,9 @@
                 updateStatusLog(`Erreur: Impossible de charger le modèle FaceMesh. (${error.message || 'Vérifiez la console.'})`);
             }
         }
-*/
 
-	async function loadFaceMeshModel() {
+
+	async function loadFaceMeshModel_v2() {
 	    updateStatusLog('Chargement du modèle FaceMesh...');
 	    try {
 		// Tenter de forcer le backend CPU pour le test
@@ -350,7 +350,7 @@
 		updateStatusLog(`Erreur: Impossible de charger le modèle FaceMesh. (${error.message || 'Vérifiez la console.'})`);
 	    }
 	}
-
+	
         // Indices des points clés pour les contours des yeux FaceMesh
         const LEFT_EYE_CONTOUR_INDICES = [
             33, 7, 163, 144, 145, 153, 154, 155, 133,
