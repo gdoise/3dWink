@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Détection Faciale (face-api.js) - V54</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 20px; background-color: #f0f0f0; color: #333; }
+        h1 { color: #0056b3; margin-bottom: 20px; }
+        .controls { margin-bottom: 20px; text-align: center; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); width: 90%; max-width: 680px; }
+        button { padding: 12px 25px; font-size: 18px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; transition: background-color 0.3s ease; margin: 5px; }
+        button:hover { background-color: #0056b3; }
+        #status { margin-top: 10px; font-weight: bold; color: #555; }
+        #statusLog { width: 90%; max-width: 500px; height: 200px; margin-top: 15px; padding: 10px; font-size: 0.9em; border: 1px solid #ddd; background-color: #f9f9f9; resize: vertical; font-family: monospace; white-space: pre-wrap; overflow-y: scroll; text-align: left; }
+        .video-container { 
+            position: relative; 
+            border: 2px solid #a0a0a0; 
+            background-color: black; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            margin-top: 25px; 
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15); 
+            width: 90%; 
+            max-width: 680px;
+        }
+        #webcamVideo { 
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+        #detectionCanvas { 
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .source-selector { margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <h1>Détection Faciale (face-api.js) - V54</h1>
+
+    <div class="controls">
+        <div class="source-selector">
+            <button id="startButtonWebcam">Démarrer avec Webcam</button>
+            <button id="selectImageButton">Sélectionner une Image</button>
+            <input type="file" id="imageFileInput" accept="image/*" style="display: none;">
+        </div>
+        <p id="status">Statut : En attente de démarrage...</p>
+        <textarea id="statusLog" rows="10" cols="50" readonly></textarea>
+    </div>
+
+    <div class="video-container">
+        <video id="webcamVideo" autoplay playsinline></video>
+        <canvas id="detectionCanvas"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+
+    <script>
+        const webcamVideo = document.getElementById('webcamVideo');
+        const detectionCanvas = document.getElementById('detectionCanvas');
+        const ctx = detectionCanvas.getContext('2d');
+        const startButtonWebcam = document.getElementById('startButtonWebcam');
+        const selectImageButton = document.getElementById('selectImageButton');
+        const imageFileInput = document.getElementById('imageFileInput');
+        const statusLogElement = document.getElementById('statusLog');
+        const statusElement = document.getElementById('status');
+        
+        let modelsLoaded = false;
+        let animationFrameId;
+        let lastStatusMessage = '';
+        let lastEarMessage = '';
+
+        const MODELS_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+
+        async function loadModels() {
+            if (modelsLoaded) {
+                updateStatusLog('Modèles face-api.js déjà chargés.');
+                return;
+            }
+            updateStatusLog('Chargement des modèles face-api.js...');
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_URL);
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(MODELS_URL);
+                modelsLoaded = true;
+                updateStatusLog('Modèles face-api.js chargés avec succès.');
+            } catch (error) {
+                updateStatusLog(`Erreur: Impossible de charger les modèles face-api.js. (${error.message || 'Vérifiez la console.'})`);
+                console.error('Erreur lors du chargement des modèles face-api.js:', error);
+            }
+        }
+
+        function updateStatusLog(message, isEar = false) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            const fullMessage = `[${timeString}] ${message}`;
+
+            if (isEar) {
+                if (message !== lastEarMessage) {
+                    statusLogElement.value += fullMessage + '\n';
+                    statusLogElement.scrollTop = statusLogElement.scrollHeight;
+                    lastEarMessage = message;
+                }
+            } else {
+                if (message !== lastStatusMessage) {
+                    statusLogElement.value += fullMessage + '\n';
+                    statusLogElement.scrollTop = statusLogElement.scrollHeight;
+                    lastStatusMessage = message;
+                }
+            }
+            statusElement.textContent = `Statut : ${message.split('\n')[0]}`;
+            console.log(fullMessage);
+        }
+
+        async function setupWebcam() {
+            updateStatusLog('Démarrage de la webcam...');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamVideo.srcObject = stream;
+
+                return new Promise((resolve) => {
+                    webcamVideo.onloadedmetadata = () => {
+                        webcamVideo.play();
+                        // Ajuster les dimensions du canvas de détection pour correspondre à la vidéo
+                        detectionCanvas.width = webcamVideo.videoWidth;
+                        detectionCanvas.height = webcamVideo.videoHeight;
+                        resolve(true);
+                    };
+                });
+            } catch (error) {
+                console.error('Erreur d\'accès à la webcam:', error);
+                updateStatusLog(`Erreur: Accès à la webcam refusé ou impossible. (${error.name} - ${error.message || 'Cause inconnue'})`);
+                alert('Impossible d\'accéder à la webcam. Assurez-vous qu\'elle est connectée et que vous avez accordé la permission.');
+                return null;
+            }
+        }
+
+        function getEAR(landmarks) {
+            const leftEyeLandmarks = landmarks.getLeftEye();
+            const rightEyeLandmarks = landmarks.getRightEye();
+
+            const p2Left = leftEyeLandmarks[1]; const p6Left = leftEyeLandmarks[5];
+            const p3Left = leftEyeLandmarks[2]; const p5Left = leftEyeLandmarks[4];
+            const p1Left = leftEyeLandmarks[0]; const p4Left = leftEyeLandmarks[3];
+            
+            const A_left = faceapi.euclideanDistance([p2Left.x, p2Left.y], [p6Left.x, p6Left.y]);
+            const B_left = faceapi.euclideanDistance([p3Left.x, p3Left.y], [p5Left.x, p5Left.y]);
+            const C_left = faceapi.euclideanDistance([p1Left.x, p1Left.y], [p4Left.x, p4Left.y]);
+            const leftEAR = (A_left + B_left) / (2.0 * C_left);
+            
+            const p2Right = rightEyeLandmarks[1]; const p6Right = rightEyeLandmarks[5];
+            const p3Right = rightEyeLandmarks[2]; const p5Right = rightEyeLandmarks[4];
+            const p1Right = rightEyeLandmarks[0]; const p4Right = rightEyeLandmarks[3];
+
+            const A_right = faceapi.euclideanDistance([p2Right.x, p2Right.y], [p6Right.x, p6Right.y]);
+            const B_right = faceapi.euclideanDistance([p3Right.x, p3Right.y], [p5Right.x, p5Right.y]);
+            const C_right = faceapi.euclideanDistance([p1Right.x, p1Right.y], [p4Right.x, p4Right.y]);
+            const rightEAR = (A_right + B_right) / (2.0 * C_right);
+
+            return { leftEAR: leftEAR, rightEAR: rightEAR };
+        }
+        
+        async function detectAndDrawWebcam() {
+            if (!modelsLoaded || webcamVideo.paused || webcamVideo.ended) {
+                 animationFrameId = requestAnimationFrame(detectAndDrawWebcam);
+                 return;
+            }
+            
+            // Effacer le canvas de détection à chaque frame
+            ctx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height);
+            
+            const detections = await faceapi.detectAllFaces(webcamVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+            
+            if (detections.length > 0) {
+                updateStatusLog(`Visage(s) détecté(s) : ${detections.length}`);
+
+                const displaySize = { width: detectionCanvas.width, height: detectionCanvas.height };
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+                for (const detection of resizedDetections) {
+                    const box = detection.detection.box;
+                    const landmarks = detection.landmarks;
+
+                    // Dessiner un cadre vert autour du visage
+                    if (box && typeof box.x === 'number') {
+                        ctx.strokeStyle = 'green';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(box.x, box.y, box.width, box.height);
+                    }
+
+                    // Dessiner les points de repère faciaux en jaune
+                    if (landmarks && landmarks.positions) {
+                        ctx.fillStyle = 'yellow';
+                        for (const p of landmarks.positions) {
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, 2, 0, 2 * Math.PI);
+                            ctx.fill();
+                        }
+                    }
+                    
+                    const ears = getEAR(detection.landmarks);
+                    updateStatusLog(`EAR gauche: ${ears.leftEAR.toFixed(2)}, EAR droit: ${ears.rightEAR.toFixed(2)}`, true);
+                }
+            } else {
+                updateStatusLog('Aucun visage détecté par face-api.js.');
+            }
+            animationFrameId = requestAnimationFrame(detectAndDrawWebcam);
+        }
+
+        async function detectAndDrawImage(image, file) {
+            if (!modelsLoaded) {
+                updateStatusLog('Modèles face-api.js non chargés. Annulation de la détection.');
+                return;
+            }
+            
+            webcamVideo.style.display = 'block'; // Rendre la vidéo visible pour le conteneur
+            detectionCanvas.style.display = 'block';
+
+            // Créer un canvas temporaire pour gérer l'orientation EXIF
+            const tempCanvas = await new Promise((resolve) => {
+                EXIF.getData(file, function() {
+                    const orientation = EXIF.getTag(this, 'Orientation') || 1;
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+                    let imageWidth = image.naturalWidth;
+                    let imageHeight = image.naturalHeight;
+                    
+                    if (orientation > 4) {
+                        tempCanvas.width = imageHeight;
+                        tempCanvas.height = imageWidth;
+                    } else {
+                        tempCanvas.width = imageWidth;
+                        tempCanvas.height = imageHeight;
+                    }
+
+                    switch (orientation) {
+                        case 2: tempCtx.transform(-1, 0, 0, 1, imageWidth, 0); break;
+                        case 3: tempCtx.transform(-1, 0, 0, -1, imageWidth, imageHeight); break;
+                        case 4: tempCtx.transform(1, 0, 0, -1, 0, imageHeight); break;
+                        case 5: tempCtx.transform(0, 1, 1, 0, 0, 0); break;
+                        case 6: tempCtx.transform(0, 1, -1, 0, imageHeight, 0); break;
+                        case 7: tempCtx.transform(0, -1, -1, 0, imageHeight, imageWidth); break;
+                        case 8: tempCtx.transform(0, -1, 1, 0, 0, imageWidth); break;
+                    }
+                    tempCtx.drawImage(image, 0, 0);
+                    resolve(tempCanvas);
+                });
+            });
+
+            // Mettre à jour les dimensions du conteneur et des canvas pour l'image
+            const sourceWidth = tempCanvas.width;
+            const sourceHeight = tempCanvas.height;
+            const videoContainer = document.querySelector('.video-container');
+            videoContainer.style.width = sourceWidth + 'px';
+            videoContainer.style.height = sourceHeight + 'px';
+            webcamVideo.style.display = 'none'; // Cacher l'élément vidéo
+            
+            // Dessiner l'image sur le canvas de détection pour l'afficher
+            detectionCanvas.width = sourceWidth;
+            detectionCanvas.height = sourceHeight;
+            ctx.clearRect(0, 0, sourceWidth, sourceHeight);
+            ctx.drawImage(tempCanvas, 0, 0, sourceWidth, sourceHeight);
+
+            const detections = await faceapi.detectAllFaces(tempCanvas, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+
+            if (detections.length > 0) {
+                updateStatusLog(`Visage(s) détecté(s) : ${detections.length}`);
+
+                const displaySize = { width: sourceWidth, height: sourceHeight };
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+                for (const detection of resizedDetections) {
+                    const box = detection.detection.box;
+                    const landmarks = detection.landmarks;
+
+                    // Dessiner un cadre vert autour du visage
+                    if (box && typeof box.x === 'number') {
+                        ctx.strokeStyle = 'green';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(box.x, box.y, box.width, box.height);
+                    }
+
+                    // Dessiner les points de repère faciaux en jaune
+                    if (landmarks && landmarks.positions) {
+                        ctx.fillStyle = 'yellow';
+                        for (const p of landmarks.positions) {
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, 2, 0, 2 * Math.PI);
+                            ctx.fill();
+                        }
+                    }
+                    
+                    const ears = getEAR(detection.landmarks);
+                    updateStatusLog(`EAR gauche: ${ears.leftEAR.toFixed(2)}, EAR droit: ${ears.rightEAR.toFixed(2)}`, true);
+                }
+            } else {
+                updateStatusLog('Aucun visage détecté par face-api.js.');
+            }
+        }
+
+        async function startDetection(source, file = null) {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            if (webcamVideo.srcObject) {
+                const stream = webcamVideo.srcObject;
+                const tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());
+                webcamVideo.srcObject = null;
+            }
+            
+            statusLogElement.value = '';
+            lastStatusMessage = '';
+            lastEarMessage = '';
+            
+            updateStatusLog(`Démarrage du test avec ${source}...`);
+            await loadModels();
+
+            if (source === 'webcam') {
+                const streamReady = await setupWebcam();
+                if (!streamReady) {
+                    updateStatusLog('Webcam non prête. Abandon.');
+                    return;
+                }
+                updateStatusLog('Webcam démarrée. Détection en cours...');
+                detectAndDrawWebcam();
+            } else if (source === 'image' && file) {
+                const imgToDetect = new Image();
+                imgToDetect.onload = () => {
+                    detectAndDrawImage(imgToDetect, file);
+                };
+                imgToDetect.onerror = () => {
+                    updateStatusLog('Erreur lors du chargement de l\'image sélectionnée.');
+                };
+                imgToDetect.src = URL.createObjectURL(file);
+            }
+        }
+
+        startButtonWebcam.addEventListener('click', () => startDetection('webcam'));
+        selectImageButton.addEventListener('click', () => imageFileInput.click());
+        imageFileInput.addEventListener('change', (event) => {
+            if (event.target.files.length > 0) {
+                startDetection('image', event.target.files[0]);
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', loadModels);
+    </script>
+</body>
+</html>
